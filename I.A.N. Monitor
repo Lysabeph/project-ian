@@ -1,0 +1,304 @@
+#!/bin/bash
+
+#   A data collection program that records when programs are run on the
+#   system as a part of the Intuitive Applicaiton Navigator (I.A.N.).
+#   
+#   Copyright (C) 2017  Elisabeth Morgan
+#
+#   This program is free software: you can redistribute it and/or modify
+#   it under the terms of the GNU General Public License as published by
+#   the Free Software Foundation, either version 3 of the License, or
+#   (at your option) any later version.
+#
+#   This program is distributed in the hope that it will be useful,
+#   but WITHOUT ANY WARRANTY; without even the implied warranty of
+#   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+#   GNU General Public License for more details.
+#
+#   You should have received a copy of the GNU General Public License
+#   along with this program.  If not, see <http://www.gnu.org/licenses/>.
+#
+#   The file named LICENSE contains a copy of the GNU General Public
+#   License.
+
+# Defines all constants.
+UPDATE_TIME=$(grep UPDATE_TIME= settings.cfg)
+IFS="=" read -r variable UPDATE_TIME <<< "$UPDATE_TIME"
+
+SAVE_PATH=$(grep SAVE_PATH= settings.cfg)
+IFS="=" read -r variable SAVE_PATH <<< "$SAVE_PATH"
+
+DATABASE=$(grep DATABASE= settings.cfg)
+IFS="=" read -r variable DATABASE <<< "$DATABASE"
+DATABASE=$SAVE_PATH/$DATABASE
+echo $DATABASE
+
+COMMAND="ps -u $USER -o "%p///%c///" -o cmd --no-headers"
+BREAK_STRING="///"
+
+# Defines all global data stores.
+declare -A open_program_dict
+
+# Checks the path for the program exists.
+if [ ! -d $SAVE_PATH ]; then
+    mkdir $SAVE_PATH
+fi
+
+# Checks that the database has been created.
+if [ ! -f $DATABASE ]; then
+    sqlite3 $DATABASE < create.sql
+fi
+
+# Checks that there is a latest time file for use when updating the database.
+if [ ! -f $SAVE_PATH/latest_time ]; then
+    echo 0 >latest_time
+fi
+
+function get_program_number () {
+    program_name=$1
+    echo $( sqlite3 $DATABASE "
+            SELECT Programs.ProgramNumber
+            FROM Programs
+            WHERE Programs.ProgramName = '$program_name';" )
+
+}
+
+# Creates a close log for all programs if the main program is terminated.
+function exit_trap_cleanup () {
+    current_time=$(date +"%s")
+
+    for pid in "${!open_program_dict[@]}"; do
+        pid=$( echo "$pid" | awk '{gsub(/^ +| +$/,"")} {print $0}' )
+        name=${open_program_dict[$pid]}
+        # Remove any unwanted white space.
+        name=$( echo "$name" | awk '{gsub(/^ +| +$/,"")} {print $0}' )
+        pnum=$( get_program_number "$name" )
+        echo name = $name pnum = $pnum
+
+        echo $( sqlite3 $DATABASE "
+            INSERT INTO ProgramLogs(ProgramNumber, PID, DateTime, OpenClose)
+            VALUES('$pnum', '$pid', '$current_time', 'Close');" )
+
+        echo Logging - Process: $name, PID: $pid, Time: $current_time, State: Close
+
+    done
+
+    echo $( sqlite3 $DATABASE "
+            INSERT INTO ProgramLogs(ProgramNumber, PID, DateTime, OpenClose)
+            VALUES('0', '-1', '$(date +%s)', 'Close');" )
+
+    # Updates the database.
+    python3 I.A.N.\ Log\ Updater.py
+
+    #rm previous_output newest_output
+}
+
+trap exit_trap_cleanup EXIT
+
+function compare_output () {
+    integers=(1 2 3)
+    mapfile -t prev_output < $SAVE_PATH/previous_output
+    mapfile -t new_output < $SAVE_PATH/newest_output
+    offset=0
+    local -a log
+
+    for row_number in ${!new_output[@]}; do
+
+        if echo "${new_output[$row_number]}" | grep "$COMMAND"; then
+            (( offset-- ))
+            continue
+        fi
+
+        prev_record=()
+        new_record=()
+
+        if [[ $( grep -o "$BREAK_STRING" <<< "${new_output[$row_number]}" | wc -l ) -ne  "2" ]]; then
+            (( offset-- ))
+            continue
+        fi
+        
+        for i in "${integers[@]}"; do
+            prev_record+=( $( echo ${prev_output[ $(( row_number + offset )) ]} | awk -F'///' -v i=$i '{print $i}' ) )
+            new_record+=( $( echo ${new_output[ $row_number ]} | awk -F'///' -v i=$i '{print $i}' ) )
+        done
+
+        while true; do
+
+            if [[ "$prev_record" == "$new_record" ]]; then
+                new_output[ $row_number ]=""
+                prev_output[ $(( row_number + offset )) ]=""
+                break
+
+            else
+                local -i prev_pid=${prev_record[0]} 
+
+                if [ "$prev_pid" -eq "0" ] || [ -z "$prev_pid" ]; then
+                    prev_pid=$(( $( cat /proc/sys/kernel/pid_max ) + 1 ))
+                fi
+
+                local -i new_pid=${new_record[0]}
+
+                if [ "$new_pid" -lt "$prev_pid" ]; then
+                    (( offset-- ))
+                    log=( "${log[@]}" "${new_output[ $(( row_number )) ]} ///$( date +"%s" ) ///Open" )
+                    new_output[ $row_number ]=""
+                    break
+
+                elif [ "$new_pid" -gt "$prev_pid" ]; then
+
+                    if ! echo "${new_output[$row_number]}" | grep "$COMMAND"; then
+                        log=( "${log[@]}" "${prev_output[ $(( row_number + offset )) ]} ///$(date +"%s") ///Close" )
+                    fi
+                    
+                    prev_output[ $(( row_number + offset )) ]=""
+
+                    (( offset++ ))
+                    prev_record=()
+                    for i in "${integers[@]}"; do
+                        prev_record+=( $( echo ${prev_output[ $(( row_number + offset )) ]} | awk -F'///' -v i=$i '{print $i}' ) )
+                    done
+                fi
+            fi
+        done
+    
+    done
+
+    for record in "${prev_output[@]:$((row_number + offset))}"; do
+
+        if echo "$record" | grep "$COMMAND"; then
+            continue
+        else
+            log=( "${log[@]}" "$record ///$(date +"%s") ///Close" )
+        fi
+    done
+
+    integers+=(4 5)
+
+    for item in "${!log[@]}"; do
+        unset present
+
+        if echo "${log[$item]}" | grep "$COMMAND"; then
+            unset log[$item]
+            continue
+        fi
+
+        record=()
+
+        for i in "${integers[@]}"; do
+            record+=( "$( echo ${log[ $item ]} | awk -F'///' -v i=$i '{print $i}' )" )
+        done
+
+        log_name=${record[1]}
+        log_name=$( echo "$log_name" | awk '{gsub(/^ +| +$/,"")} {print $0}' )
+        log_pid=${record[0]}
+        log_pid=$( echo "$log_pid" | awk '{gsub(/^ +| +$/,"")} {print $0}' )
+
+        for pid in "${!open_program_dict[@]}"; do
+            pname=${open_program_dict["$pid"]}
+
+            if [[ "$pname" == "$log_name" ]]; then
+                local present=true
+
+                if [[ "$log_pid" == "$pid" ]]; then
+                    unset open_program_dict["$pid"]
+
+                else
+                    unset log[$item]
+                fi
+
+                break
+            fi
+        done
+
+        if ! [ $present ]; then
+
+            if [[ "${record[-1]}" == "Open" ]]; then
+                open_program_dict["$log_pid"]="$log_name"
+
+            else
+                unset log[$item]
+            fi
+        else
+            unset present
+        fi
+    done
+
+    for index in "${!log[@]}"; do
+        record=()
+
+        for i in "${integers[@]}"; do
+            record+=( "$( echo ${log[$index]} | awk -F'///' -v i=$i '{print $i}' )" )
+        done
+
+        pid=${record[0]}
+        pid=$( echo "$pid" | awk '{gsub(/^ +| +$/,"")} {print $0}' )
+        name=${record[1]}
+        name=$( echo "$name" | awk '{gsub(/^ +| +$/,"")} {print $0}' )
+        command=${record[2]}
+        current_time=${record[-2]}
+        state=${record[-1]}
+
+        programs=$( sqlite3 $DATABASE "
+            SELECT Programs.ProgramName
+            FROM Programs;" )
+
+        pnum=$( get_program_number "$name" )
+
+        if ! [ $pnum ]; then
+
+            echo $( sqlite3 $DATABASE "
+                INSERT INTO Programs(ProgramName, TimesRun, TotalRunTime, DisplayProgram, Likelihood, Persistence)
+                VALUES('$name', 0, 0, 1, 0, 0);" )
+
+            echo Adding $name to the database as a newly used process.
+        fi
+
+        pnum=$( get_program_number "$name" )
+
+        echo Logging - Process: $name, PID: $pid, Time: $current_time, State: $state
+        
+        echo $( sqlite3 $DATABASE "
+            INSERT INTO ProgramLogs(ProgramNumber, PID, DateTime, OpenClose)
+            VALUES('$pnum', '$pid', '$current_time', '$state');" )
+
+        if ! [ $( sqlite3 $DATABASE "SELECT ProgramCommands.ProgramNumber FROM ProgramCommands WHERE ProgramCommands.ProgramCMD='$command';") ]; then
+            echo $( sqlite3 $DATABASE "
+                INSERT INTO ProgramCommands(ProgramCMD, ProgramNumber)
+                VALUES('$command', '$pnum');" )
+        fi
+    done
+
+}
+
+if ! [ $(sqlite3 $DATABASE "SELECT * FROM Programs WHERE Programs.ProgramNumber = '0';") ]; then
+
+    echo $( sqlite3 $DATABASE "
+                INSERT INTO Programs(ProgramNumber, ProgramName, TimesRun, TotalRunTime, DisplayProgram, Likelihood, Persistence)
+                VALUES(0, 'NULL', 0, 0, 0, 0, 0);" )
+
+fi
+
+echo $( sqlite3 $DATABASE "
+            INSERT INTO ProgramLogs(ProgramNumber, PID, DateTime, OpenClose)
+            VALUES('0', '-1', '$(date +%s)', 'Open');" )
+
+$COMMAND > $SAVE_PATH/previous_output
+
+# Loops indefinitely.
+while true; do
+    echo ~~~
+    # Gets the currently running processes.
+    $COMMAND > $SAVE_PATH/newest_output
+    compare_output # The function call for the main computation.
+
+    if [ -f $SAVE_PATH/open_programs ]; then
+        rm $SAVE_PATH/open_programs
+    fi
+
+    for pid in "${!open_program_dict[@]}"; do
+        echo \'${open_program_dict["$pid"]}\' \"$pid\" >>open_programs
+    done
+
+    sleep $UPDATE_TIME # The delay between updates.
+    cat $SAVE_PATH/newest_output > $SAVE_PATH/previous_output # Re-writes the newest and previous files.
+done
