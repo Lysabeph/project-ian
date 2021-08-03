@@ -85,6 +85,7 @@ def sql_update():
 
     for data in sorting:
         sorted_sql_programs.append(sql_programs[data[1]])
+    print("Sorting:", sorted_sql_programs)
 
     return sql_programs, sorted_sql_programs
 
