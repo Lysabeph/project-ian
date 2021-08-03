@@ -1,4 +1,2 @@
-# Made scheduler dependent on the settings.cfg settings for the update interval.
-# Added reverse insertion sort.
-# Added statistics call to scheduler.
+# 
 # Minor code changes.

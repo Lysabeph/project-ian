@@ -8,8 +8,8 @@
 #
 #   This program is free software: you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
-#   the Free Software Foundation, either version 3 of the License, or
-#   (at your option) any later version.
+#   the Free Software Foundation, version 3 of the License, or any later
+#   version.
 #
 #   This program is distributed in the hope that it will be useful,
 #   but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -214,9 +214,9 @@ class MainWindow():
         self.window.connect("destroy", Gtk.main_quit)
 
         self.settings_image_dynamic = Gtk.Image()
-        self.settings_image_dynamic.set_from_file("data/cog_dynamic_32x32.gif")
+        self.settings_image_dynamic.set_from_file("icons/cog_dynamic_32x32.gif")
         self.settings_image_still = Gtk.Image()
-        self.settings_image_still.set_from_file("data/cog_still_32x32.png")
+        self.settings_image_still.set_from_file("icons/cog_still_32x32.png")
 
         # Gets the widgets.
         self.builder.get_object("settings_button").connect("clicked", self.on_settings_button_click)

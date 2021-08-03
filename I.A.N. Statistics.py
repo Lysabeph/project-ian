@@ -7,8 +7,8 @@
 #
 #   This program is free software: you can redistribute it and/or modify
 #   it under the terms of the GNU General Public License as published by
-#   the Free Software Foundation, either version 3 of the License, or
-#   (at your option) any later version.
+#   the Free Software Foundation, version 3 of the License, or any later
+#   version.
 #
 #   This program is distributed in the hope that it will be useful,
 #   but WITHOUT ANY WARRANTY; without even the implied warranty of
@@ -47,21 +47,23 @@ def get_time_range(epoch):
     upper_epoch = lower_epoch + UPDATE_INTERVAL
     return lower_epoch, upper_epoch
 
-def get_probability(variable, dictionary):
+def get_specific_probability(variable, dictionary):
     has_run_counter = 0
     c.execute("""
                 SELECT Programs.TimesRun
                 FROM Programs
                 WHERE Programs.ProgramNumber='{0}';
             """.format(str(variable)))
-    total_times_run = c.fetchone()[0]
+
+    total_times_run = int(c.fetchone()[0])
     multi_array = []
 
     for key in dictionary:
         multi_array.append(dictionary[key])
 
     for array in multi_array:
-        if variable in array:
+
+        if variable in array[0]:
             has_run_counter += 1
             total_times_run += array.count(variable)
 
@@ -75,33 +77,106 @@ def get_probability(variable, dictionary):
 
     return probability, persistence
 
+def record_remover(program_logs, earliest_epoch):
+
+    for times in list(program_logs.keys()):
+
+        if times < earliest_epoch:
+            program_logs.pop(times, None)
+
+def get_statistics(program_logs, program, earliest_epoch, method=1):
+
+    if method == 1:
+        print("!", program_logs)
+        record_remover(program_logs, earliest_epoch)
+
+        open_logs = dict(program_logs)
+        remove_queue = []
+
+        for index in open_logs.keys():
+            
+            if not open_logs[index][1]:
+                remove_queue.append(index)
+
+        for item in remove_queue:
+            open_logs.pop(item, None)
+
+        if len(open_logs) < 5:
+            return get_statistics(program_logs, program, earliest_epoch, method + 1)
+
+        else:
+            probability, persistence = get_specific_probability(program[1], open_logs)
+
+    elif method == 2:
+        print("!!")
+        record_remover(program_logs, earliest_epoch)
+        
+        if len(program_logs) < 5:
+            return get_statistics(program_logs, program, earliest_epoch, method + 1)
+
+        else:
+            probability, persistence = get_specific_probability(program[1], program_logs)
+
+    elif method == 3:
+        print("!!!")
+
+        if earliest_epoch + 5*TIME_PERIOD < current_epoch:
+            lower_epoch, upper_epoch = get_time_range(current_epoch)
+            program_number = 0
+            total_number = 0
+            
+            while upper_epoch > earliest_epoch:
+                total_number += 1
+
+                for log in c.execute("""
+                            SELECT ProgramLogs.ProgramNumber
+                            FROM ProgramLogs
+                            WHERE ProgramLogs.OpenClose='Open'
+                            AND ProgramLogs.DateTime>='{0}'
+                            AND ProgramLogs.DateTime<'{1}';
+                        """.format(str(lower_epoch), str(upper_epoch))):
+
+                    if program[1] == log:
+                        program_number += 1
+
+                lower_epoch -= UPDATE_INTERVAL
+                upper_epoch -= UPDATE_INTERVAL
+
+            probability, persistence = program_number/total_number, 0
+
+    return probability, persistence
+
 conn = sqlite3.connect(DATABASE)
 c = conn.cursor()
 
 programs = []
 
 for record in c.execute("""
-                            SELECT *
+                            SELECT Programs.ProgramName, Programs.ProgramNumber
                             FROM Programs;
                         """):
-    programs.append([record[0], record[1]])
+    programs.append([record[0], int(record[1])])
 
-open_programs = []
 open_program_numbers = []
+try:
+    with open("open_programs", "r") as file:
+        open_programs = file.readlines()
 
-with open("open_programs", "r") as file:
-    open_programs = file.readlines()
+except FileNotFoundError:
+    open_programs = []
 
 for program in open_programs:
+    program = program.split(" ")[0].replace("'", "")
+
     c.execute("""
             SELECT Programs.ProgramNumber
             FROM Programs
-            WHERE Programs.ProgramName='{}';
+            WHERE Programs.ProgramName='{0}';
         """.format(program))
 
-        open_programs_numbers.append=c.fetchone()[0]
+    open_program_numbers.append(int(c.fetchone()[0]))
 
-current_epoch = int(time.time())
+current_epoch = 1486190301 # int(time.time())
 lower_epoch, upper_epoch = get_time_range(current_epoch)
 
 c.execute("""
@@ -113,7 +188,6 @@ first_epoch = c.fetchone()[0]
 
 print("Programs:", programs, "\nFirst Epoch:", first_epoch)
 
-logs = {} # Stores each epoch key with a list value of all the programs running at the time.
 condition_logs = {} # Will store the programs that have been run with the currently opened programs.
 
 # Separated from the for loop in version 1 to minimise the number of database queries.
@@ -121,40 +195,57 @@ condition_logs = {} # Will store the programs that have been run with the curren
 while upper_epoch > first_epoch:
     print(lower_epoch, "(lower);", upper_epoch, "(upper)")
 
-    # Similar to logs but resets with each iteration.
-    range_logs = []
+    c.execute("""
+            SELECT ProgramLogs.OpenClose, ProgramLogs.DateTime
+            FROM ProgramLogs
+            WHERE ProgramLogs.ProgramNumber=0
+            AND ProgramLogs.DateTime<'{0}'
+            ORDER BY DateTime DESC Limit 1;
+    """.format(str(upper_epoch)))
 
-    for log in c.execute("""
-                            SELECT *
-                            FROM ProgramLogs
-                            WHERE ProgramLogs.OpenClose='Open'
-                            AND ProgramLogs.DateTime>='{0}'
-                            AND ProgramLogs.DateTime<'{1}';
-                        """.format(str(lower_epoch), str(upper_epoch))):
-        range_logs.append(log[1])
+    open_close = c.fetchone()[0:]
+    print(open_close)
 
-    logs[upper_epoch] = range_logs
+    if open_close[0] == "Close":
 
-    # Checks if the currently open programs have been open togother in the past.
-    # This could be done exactly (so no extra programs were open with the current
-    # set-up) but this may not be useful.
+        if open_close[1] > lower_epoch:
+            open_close = "Open"
 
-    program = False # Incase open_programs is empty.
+        else:
+            open_close == "Close"
 
-    if open_programs:
-        for program in open_programs:
+    if open_close == "Open":
+        # Similar to logs but resets with each iteration.
+        range_logs = []
+
+        for log in c.execute("""
+                                SELECT *
+                                FROM ProgramLogs
+                                WHERE ProgramLogs.OpenClose='Open'
+                                AND ProgramLogs.DateTime>='{0}'
+                                AND ProgramLogs.DateTime<'{1}';
+                            """.format(str(lower_epoch), str(upper_epoch))):
+            
+            if log[1]:
+                range_logs.append(log[1])
+
+        # Checks if the currently open programs have been open togother in the past.
+        # This could be done exactly (so no extra programs were open with the current
+        # set-up) but this may not be useful.
+
+        program = False # Incase open_programs is empty.
+
+        for program in open_program_numbers:
+
             if program not in range_logs:
                 program = False
                 break
 
         if program:
-            condition_logs[upper_epoch] = range_logs
+            condition_logs[upper_epoch] = range_logs, True
 
         else:
-            condition_logs[upper_epoch] = []
-
-    else:
-        condition_logs = logs
+            condition_logs[upper_epoch] = range_logs, False
 
     lower_epoch -= TIME_PERIOD
     upper_epoch -= TIME_PERIOD
@@ -169,28 +260,21 @@ conn.commit()
 for index, program in enumerate(programs):
     program_logs = dict(condition_logs)
 
-    if "\'" + program[1] + "\'" in open_programs:
+    if program[1] in open_program_numbers:
         continue
 
     c.execute("""
-                SELECT *
+                SELECT ProgramLogs.DateTime
                 FROM ProgramLogs
                 WHERE ProgramLogs.ProgramNumber='{0}'
                 ORDER BY DateTime ASC Limit 1;
-            """.format(program[0]))
+            """.format(program[1]))
 
-    earliest_epoch = c.fetchone()[-2]
+    earliest_epoch = int(c.fetchone()[0])
     print("Earliest Epoch:", earliest_epoch, "(" + str(program) + ")")
 
-    for times in list(program_logs.keys()):
-        if times < earliest_epoch:
-            program_logs.pop(times, None)
-
-    if len(program_logs) > 4:
-        probability, persistence = get_probability(program[0], program_logs)
-
-    else:
-        probability, persistence = get_probability(program[0], logs)
+    print(program_logs, program, earliest_epoch)
+    probability, persistence = get_statistics(program_logs, program, earliest_epoch)
 
     programs[index] = [program, probability, persistence]
     print(programs[index])
@@ -199,7 +283,7 @@ for index, program in enumerate(programs):
                 UPDATE Programs
                 SET Likelihood='{0}', Persistence='{1}'
                 WHERE Programs.ProgramNumber='{2}';
-            """.format(str(programs[index][1]), str(programs[index][2]), str(programs[index][0][0])))
+            """.format(str(probability), str(persistence), str(programs[index][0][1])))
 
 conn.commit()
 conn.close()
