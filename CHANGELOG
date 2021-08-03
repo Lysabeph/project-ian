@@ -1,4 +1,4 @@
-# Persistence is calculated to be True if total_times_run is greater than 1.
-# Standardisation of code.
-# Re-ordering of code for readability.
+# Made scheduler dependent on the settings.cfg settings for the update interval.
+# Added reverse insertion sort.
+# Added statistics call to scheduler.
 # Minor code changes.

@@ -67,7 +67,7 @@ def get_probability(variable, dictionary):
 
     probability = has_run_counter/len(multi_array)
     print(str(variable) + ":", probability, "=", has_run_counter, "/", str(len(multi_array)))
-    if total_times_run/len(multi_array) > 1:
+    if (total_times_run/len(multi_array))//1 > 1:
         persistence = 1
 
     else:
@@ -139,11 +139,10 @@ while upper_epoch > first_epoch:
     # This could be done exactly (so no extra programs were open with the current
     # set-up) but this may not be useful.
 
+    program = False # Incase open_programs is empty.
+
     if open_programs:
-        program = False # Incase open_programs is empty.
-
         for program in open_programs:
-
             if program not in range_logs:
                 program = False
                 break

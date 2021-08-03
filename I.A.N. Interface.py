@@ -52,6 +52,24 @@ for key in CONFIG_LIST:
     else:
         CONFIG_LIST[key] = False
 
+def reverse_insertion_sort(array, end=None):
+
+    if end is None:
+        end = len(array) - 1
+
+    if end >= 1:
+        reverse_insertion_sort(array, end - 1)
+        number = array[end]
+        prev_index = end - 1
+
+        while prev_index >= 0 and array[prev_index][0] < number[0]:
+            array[prev_index + 1] = array[prev_index]
+            prev_index -= 1
+
+        array[prev_index + 1] = number
+
+    print(array)
+
 def sql_update():
     global conn, c
 
@@ -75,19 +93,18 @@ def sql_update():
         sql_programs.append(record)
 
     sorting = []
-    sorted_sql_programs = []
 
     for index, data in enumerate(sql_programs):
         sorting.append([data[5], index])
 
-    sorting.sort()
-    sorting.reverse()
+    print(sorting)
+    reverse_insertion_sort(sorting)
 
-    for data in sorting:
-        sorted_sql_programs.append(sql_programs[data[1]])
-    print("Sorting:", sorted_sql_programs)
+    for index, data in enumerate(sorting):
+        sorting[index] = sql_programs[data[1]]
+    print("Sorting:", sorting)
 
-    return sql_programs, sorted_sql_programs
+    return sql_programs, sorting
 
 class ButtonGen():
 
@@ -174,7 +191,8 @@ class MainWindow():
         self.hbox1 = Gtk.Box(orientation=Gtk.Orientation.VERTICAL)
         self.builder.get_object("alignment1").add(self.hbox1)
         
-        udpated_sql_programs, updated_sorted_sql_programs = sql_update()
+        updated_sql_programs, updated_sorted_sql_programs = sql_update()
+        print(updated_sorted_sql_programs)
 
         for program in updated_sorted_sql_programs:
 
@@ -227,7 +245,6 @@ class SettingsWindow(Gtk.Window):
         self.about_dialog.destroy()
 
     def error_alert(self, widget, text="Cannot apply changes with a blank field."):
-    
         self.alert = Gtk.MessageDialog(self, 0, Gtk.MessageType.ERROR, Gtk.ButtonsType.CANCEL, text)
         self.alert.run()
         self.alert.destroy()
@@ -242,6 +259,7 @@ class SettingsWindow(Gtk.Window):
             self.error_alert("save path")
 
         else:
+
             for self.setting in self.settings:
 
                 for self.index, self.item in enumerate(self.settings_list):

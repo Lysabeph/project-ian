@@ -5,7 +5,7 @@
   <object class="GtkImage" id="settings_button_image">
     <property name="visible">True</property>
     <property name="can_focus">False</property>
-    <property name="pixbuf">data/cog_still_32x32.png</property>
+    <property name="pixbuf">icons/cog_still_32x32.png</property>
   </object>
   <object class="GtkWindow" id="main_window">
     <property name="visible">True</property>
@@ -17,7 +17,7 @@
     <property name="window_position">center</property>
     <property name="default_width">500</property>
     <property name="default_height">350</property>
-    <property name="icon">data/logo_256.png</property>
+    <property name="icon">icons/logo_256.png</property>
     <child>
       <object class="GtkBox" id="vbox_main">
         <property name="visible">True</property>

@@ -589,7 +589,7 @@
     <property name="version">Version 1.0.0</property>
     <property name="copyright" translatable="yes">Copyright © 2017 Elisabeth Morgan</property>
     <property name="comments" translatable="yes">Program prediction software.</property>
-    <property name="logo">data/logo_128.png</property>
+    <property name="logo">icons/logo_128.png</property>
     <property name="license_type">gpl-3-0</property>
     <child internal-child="vbox">
       <object class="GtkBox" id="aboutdialog-vbox1">
